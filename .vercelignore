@@ -7,4 +7,9 @@ coverage
 scripts
 tests
 .env
-package-lock.json
+**/*.md
+**/*.svg
+.eslintrc.json
+.prettierignore
+.pretterrc.json
+codecov.yml
