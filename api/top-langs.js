@@ -1,22 +1,23 @@
 // @ts-check
 
 import { renderTopLanguages } from "../src/cards/top-languages.js";
-import { blacklist } from "../src/common/blacklist.js";
+import { guardAccess } from "../src/common/access.js";
 import {
+  CACHE_TTL,
   resolveCacheSeconds,
   setCacheHeaders,
   setErrorCacheHeaders,
 } from "../src/common/cache.js";
-import { whitelist } from "../src/common/envs.js";
 import {
-  CONSTANTS,
-  parseArray,
-  parseBoolean,
-  renderError,
-} from "../src/common/utils.js";
+  MissingParamError,
+  retrieveSecondaryMessage,
+} from "../src/common/error.js";
+import { parseArray, parseBoolean } from "../src/common/ops.js";
+import { renderError } from "../src/common/render.js";
 import { fetchTopLanguages } from "../src/fetchers/top-languages.js";
 import { isLocaleAvailable } from "../src/translations.js";
 
+// @ts-ignore
 export default async (req, res) => {
   const {
     username,
@@ -44,42 +45,36 @@ export default async (req, res) => {
   } = req.query;
   res.setHeader("Content-Type", "image/svg+xml");
 
-  if (whitelist && !whitelist.includes(username)) {
-    return res.send(
-      renderError(
-        "This username is not whitelisted",
-        "Please deploy your own instance",
-        {
-          title_color,
-          text_color,
-          bg_color,
-          border_color,
-          theme,
-          show_repo_link: false,
-        },
-      ),
-    );
-  }
-
-  if (whitelist === undefined && blacklist.includes(username)) {
-    return res.send(
-      renderError(
-        "This username is blacklisted",
-        "Please deploy your own instance",
-        {
-          title_color,
-          text_color,
-          bg_color,
-          border_color,
-          theme,
-          show_repo_link: false,
-        },
-      ),
-    );
+  const access = guardAccess({
+    res,
+    id: username,
+    type: "username",
+    colors: {
+      title_color,
+      text_color,
+      bg_color,
+      border_color,
+      theme,
+    },
+  });
+  if (!access.isPassed) {
+    return access.result;
   }
 
   if (locale && !isLocaleAvailable(locale)) {
-    return res.send(renderError("Something went wrong", "Locale not found"));
+    return res.send(
+      renderError({
+        message: "Something went wrong",
+        secondaryMessage: "Locale not found",
+        renderOptions: {
+          title_color,
+          text_color,
+          bg_color,
+          border_color,
+          theme,
+        },
+      }),
+    );
   }
 
   if (
@@ -88,7 +83,17 @@ export default async (req, res) => {
       !["compact", "normal", "donut", "donut-vertical", "pie"].includes(layout))
   ) {
     return res.send(
-      renderError("Something went wrong", "Incorrect layout input"),
+      renderError({
+        message: "Something went wrong",
+        secondaryMessage: "Incorrect layout input",
+        renderOptions: {
+          title_color,
+          text_color,
+          bg_color,
+          border_color,
+          theme,
+        },
+      }),
     );
   }
 
@@ -98,7 +103,17 @@ export default async (req, res) => {
       !["bytes", "percentages"].includes(stats_format))
   ) {
     return res.send(
-      renderError("Something went wrong", "Incorrect stats_format input"),
+      renderError({
+        message: "Something went wrong",
+        secondaryMessage: "Incorrect stats_format input",
+        renderOptions: {
+          title_color,
+          text_color,
+          bg_color,
+          border_color,
+          theme,
+        },
+      }),
     );
   }
 
@@ -111,9 +126,9 @@ export default async (req, res) => {
     );
     const cacheSeconds = resolveCacheSeconds({
       requested: parseInt(cache_seconds, 10),
-      def: CONSTANTS.TOP_LANGS_CACHE_SECONDS,
-      min: CONSTANTS.TWO_DAY,
-      max: CONSTANTS.TEN_DAY,
+      def: CACHE_TTL.TOP_LANGS_CARD.DEFAULT,
+      min: CACHE_TTL.TOP_LANGS_CARD.MIN,
+      max: CACHE_TTL.TOP_LANGS_CARD.MAX,
     });
 
     setCacheHeaders(res, cacheSeconds);
@@ -141,13 +156,32 @@ export default async (req, res) => {
     );
   } catch (err) {
     setErrorCacheHeaders(res);
+    if (err instanceof Error) {
+      return res.send(
+        renderError({
+          message: err.message,
+          secondaryMessage: retrieveSecondaryMessage(err),
+          renderOptions: {
+            title_color,
+            text_color,
+            bg_color,
+            border_color,
+            theme,
+            show_repo_link: !(err instanceof MissingParamError),
+          },
+        }),
+      );
+    }
     return res.send(
-      renderError(err.message, err.secondaryMessage, {
-        title_color,
-        text_color,
-        bg_color,
-        border_color,
-        theme,
+      renderError({
+        message: "An unknown error occurred",
+        renderOptions: {
+          title_color,
+          text_color,
+          bg_color,
+          border_color,
+          theme,
+        },
       }),
     );
   }
